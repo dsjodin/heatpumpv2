@@ -107,6 +107,14 @@ def test():
                          dashboard_title=provider.get_dashboard_title())
 
 
+@app.route('/mobile')
+def mobile():
+    """Serve mobile-optimized dashboard page"""
+    return render_template('mobile.html',
+                         brand_name=provider.get_display_name(),
+                         dashboard_title=provider.get_dashboard_title())
+
+
 @app.route('/api/config')
 def get_config():
     """Get dashboard configuration"""
