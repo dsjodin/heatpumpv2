@@ -131,7 +131,7 @@
 
         /* Temperature colors */
         .temp-outdoor .icon { color: #74c0fc; }
-        .temp-indoor .icon { color: #51cf66; }
+        .temp-radiator .icon { color: #ff6b6b; }
         .temp-hotwater .icon { color: var(--color-hot); }
         .temp-brine .icon { color: #339af0; }
 
@@ -366,11 +366,11 @@
                 <div class="minmax" id="temp-outdoor-minmax">--</div>
             </div>
 
-            <div class="status-card temp-indoor">
-                <div class="icon"><i class="fas fa-home"></i></div>
-                <div class="label">Inomhus</div>
-                <div class="value" id="temp-indoor">--<span class="unit">°C</span></div>
-                <div class="minmax" id="temp-indoor-minmax">--</div>
+            <div class="status-card temp-radiator">
+                <div class="icon"><i class="fas fa-temperature-arrow-up"></i></div>
+                <div class="label">Radiator Fram/Retur</div>
+                <div class="value small" id="temp-radiator">--/--<span class="unit">°C</span></div>
+                <div class="minmax" id="temp-radiator-minmax">--</div>
             </div>
 
             <div class="status-card temp-hotwater">
@@ -509,8 +509,20 @@
 
             // Update temperatures
             updateTemp('temp-outdoor', current.outdoor_temp);
-            updateTemp('temp-indoor', current.indoor_temp);
             updateTemp('temp-hotwater', current.hot_water);
+
+            // Radiator temps (forward/return)
+            if (current.radiator_forward && current.radiator_return) {
+                const radFwd = current.radiator_forward.current !== null ? current.radiator_forward.current.toFixed(1) : '--';
+                const radRet = current.radiator_return.current !== null ? current.radiator_return.current.toFixed(1) : '--';
+                document.getElementById('temp-radiator').innerHTML = `${radFwd}/${radRet}<span class="unit">°C</span>`;
+
+                // Min/max for radiator
+                const minmaxEl = document.getElementById('temp-radiator-minmax');
+                if (current.radiator_forward.min !== null && current.radiator_forward.max !== null) {
+                    minmaxEl.textContent = `Fram: ${current.radiator_forward.min.toFixed(0)}°-${current.radiator_forward.max.toFixed(0)}°`;
+                }
+            }
 
             // Brine temps
             if (current.brine_in && current.brine_out) {
