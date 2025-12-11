@@ -20,6 +20,7 @@ import sys
 import time
 import logging
 import requests
+import yaml
 from datetime import datetime
 from typing import Dict, Any, Optional
 
@@ -37,6 +38,25 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def load_brand_from_config() -> str:
+    """Load brand from config.yaml, falling back to environment variable"""
+    config_path = '/app/config.yaml'
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            brand = config.get('brand', 'thermia')
+            logger.info(f"Loaded brand '{brand}' from config.yaml")
+            return brand
+    except Exception as e:
+        logger.warning(f"Could not read config.yaml: {e}")
+
+    # Fallback to environment variable
+    brand = os.getenv('HEATPUMP_BRAND', 'thermia')
+    logger.info(f"Using brand '{brand}' from environment variable")
+    return brand
 
 
 class HeatPumpAPICollector:
@@ -59,8 +79,8 @@ class HeatPumpAPICollector:
         self.influx_client = None
         self.write_api = None
 
-        # Get brand-specific provider
-        brand = os.getenv('HEATPUMP_BRAND', 'thermia')
+        # Get brand-specific provider (reads from config.yaml first, then env var)
+        brand = load_brand_from_config()
         try:
             self.provider = get_provider(brand)
             logger.info(f"Loaded provider for brand: {self.provider.get_display_name()}")
