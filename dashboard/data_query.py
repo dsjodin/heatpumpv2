@@ -98,45 +98,77 @@ class HeatPumpDataQuery:
         else:
             return "5m"  # Default
     
-    def query_metrics(self, metric_names: List[str], time_range: str = '24h', 
+    def query_metrics(self, metric_names: List[str], time_range: str = '24h',
                      aggregation_window: Optional[str] = None) -> pd.DataFrame:
         """
         Query metrics from InfluxDB
-        
+
         FÖRBÄTTRING: Nu med konfigurerbar aggregering
-        
+
         Args:
             metric_names: Lista över metrics att hämta
             time_range: Tidsperiod (t.ex. '24h', '7d')
             aggregation_window: Specifikt aggregeringsfönster (None = automatisk)
         """
         try:
-            name_filter = ' or '.join([f'r.name == "{name}"' for name in metric_names])
-            
+            # Status fields should use 'last' aggregation, not 'mean'
+            # (averaging 0/1 values gives meaningless fractional results)
+            status_fields = [
+                'compressor_status', 'brine_pump_status', 'radiator_pump_status',
+                'pump_cold_circuit', 'pump_heat_circuit', 'pump_radiator',
+                'switch_valve_status', 'switch_valve_1', 'alarm_status',
+                'add_heat_step_1', 'add_heat_step_2'
+            ]
+
+            # Split metrics into status and non-status
+            status_metrics = [m for m in metric_names if m in status_fields]
+            value_metrics = [m for m in metric_names if m not in status_fields]
+
             # Använd angiven aggregering eller beräkna automatiskt
             if aggregation_window is None:
                 aggregation_window = self._get_aggregation_window(time_range)
-            
-            query = f'''
-                from(bucket: "{self.bucket}")
-                    |> range(start: -{time_range})
-                    |> filter(fn: (r) => r._measurement == "heatpump")
-                    |> filter(fn: (r) => {name_filter})
-                    |> aggregateWindow(every: {aggregation_window}, fn: mean, createEmpty: false)
-                    |> yield(name: "mean")
-            '''
-            
+
+            results = []
+
+            # Query value metrics with mean aggregation
+            if value_metrics:
+                name_filter = ' or '.join([f'r.name == "{name}"' for name in value_metrics])
+                query = f'''
+                    from(bucket: "{self.bucket}")
+                        |> range(start: -{time_range})
+                        |> filter(fn: (r) => r._measurement == "heatpump")
+                        |> filter(fn: (r) => {name_filter})
+                        |> aggregateWindow(every: {aggregation_window}, fn: mean, createEmpty: false)
+                        |> yield(name: "mean")
+                '''
+                result = self.query_api.query_data_frame(query)
+                if isinstance(result, list):
+                    result = pd.concat(result, ignore_index=True)
+                if not result.empty:
+                    results.append(result)
+
+            # Query status metrics with last aggregation (preserves 0/1 values)
+            if status_metrics:
+                name_filter = ' or '.join([f'r.name == "{name}"' for name in status_metrics])
+                query = f'''
+                    from(bucket: "{self.bucket}")
+                        |> range(start: -{time_range})
+                        |> filter(fn: (r) => r._measurement == "heatpump")
+                        |> filter(fn: (r) => {name_filter})
+                        |> aggregateWindow(every: {aggregation_window}, fn: last, createEmpty: false)
+                        |> yield(name: "last")
+                '''
+                result = self.query_api.query_data_frame(query)
+                if isinstance(result, list):
+                    result = pd.concat(result, ignore_index=True)
+                if not result.empty:
+                    results.append(result)
+
             logger.debug(f"Querying metrics with {aggregation_window} aggregation for {time_range}")
-            
-            result = self.query_api.query_data_frame(query)
 
-            if isinstance(result, list):
-                result = pd.concat(result, ignore_index=True)
-
-            # Values are already converted by the collector before storing to DB
-            # No division needed here anymore
-
-            return result
+            if results:
+                return pd.concat(results, ignore_index=True)
+            return pd.DataFrame()
             
         except Exception as e:
             logger.error(f"Error querying metrics: {e}")
