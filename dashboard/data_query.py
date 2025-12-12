@@ -133,21 +133,8 @@ class HeatPumpDataQuery:
             if isinstance(result, list):
                 result = pd.concat(result, ignore_index=True)
 
-            # Convert raw INT values to proper display values (divide by 10 for most metrics)
-            if not result.empty and '_value' in result.columns and 'name' in result.columns:
-                # Fields that should NOT be divided (already in correct units)
-                no_division_fields = [
-                    'compressor_status', 'brine_pump_status', 'radiator_pump_status',
-                    'switch_valve_status', 'alarm_status', 'alarm_code',
-                    'operating_mode', 'external_control',
-                    'power_consumption'  # Already in Watts
-                ]
-
-                # Apply division to all other fields
-                for idx, row in result.iterrows():
-                    metric_name = row.get('name', '')
-                    if metric_name not in no_division_fields:
-                        result.at[idx, '_value'] = row['_value'] / 10.0
+            # Values are already converted by the collector before storing to DB
+            # No division needed here anymore
 
             return result
             
@@ -170,28 +157,15 @@ class HeatPumpDataQuery:
             if isinstance(result, list):
                 result = pd.concat(result, ignore_index=True)
 
-            # Fields that should NOT be divided (already in correct units)
-            no_division_fields = [
-                'compressor_status', 'brine_pump_status', 'radiator_pump_status',
-                'switch_valve_status', 'alarm_status', 'alarm_code',
-                'operating_mode', 'external_control',
-                'power_consumption'  # Already in Watts
-            ]
-
+            # Values are already converted by the collector before storing to DB
             latest = {}
             if not result.empty:
                 for _, row in result.iterrows():
                     metric_name = row['name']
-                    raw_value = row['_value']
-
-                    # Convert raw INT to display value (divide by 10 for most metrics)
-                    if metric_name not in no_division_fields:
-                        display_value = raw_value / 10.0
-                    else:
-                        display_value = raw_value
+                    value = row['_value']
 
                     latest[metric_name] = {
-                        'value': display_value,
+                        'value': value,
                         'unit': row.get('unit', ''),
                         'time': row['_time']
                     }

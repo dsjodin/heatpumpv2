@@ -161,14 +161,7 @@ def get_all_metrics_debug():
 
         logger.info(f"🔧 Debug: DataFrame shape: {df.shape}, columns: {list(df.columns) if not df.empty else 'empty'}")
 
-        # Fields that should NOT be divided (already in correct units)
-        no_division_fields = [
-            'compressor_status', 'brine_pump_status', 'radiator_pump_status',
-            'switch_valve_status', 'alarm_status', 'alarm_code',
-            'operating_mode', 'external_control',
-            'power_consumption'  # Already in Watts
-        ]
-
+        # Values are already converted by the collector before storing to DB
         metrics = []
 
         if not df.empty:
@@ -182,15 +175,9 @@ def get_all_metrics_debug():
                 # Convert numpy types to native Python types for JSON serialization
                 if hasattr(value, 'item'):
                     # numpy int64/float64 -> Python int/float
-                    python_value = value.item()
+                    display_value = value.item()
                 else:
-                    python_value = value
-
-                # Convert raw INT to display value (divide by 10 for most metrics)
-                if metric_name not in no_division_fields:
-                    display_value = python_value / 10.0
-                else:
-                    display_value = python_value
+                    display_value = value
 
                 # Format value based on type
                 if isinstance(display_value, float):
