@@ -282,7 +282,9 @@ class HeatPumpDataQuery:
         OPTIMIZED: Uses existing dataframe to avoid redundant InfluxDB query
 
         COP = Heat Output / Electrical Input
-        Simplified calculation using temperature deltas
+
+        Uses real power consumption when available, with temperature-based
+        estimation as fallback.
         """
         try:
             if df.empty:
@@ -318,17 +320,37 @@ class HeatPumpDataQuery:
             if 'brine_in_evaporator' in df_pivot.columns and 'brine_out_condenser' in df_pivot.columns:
                 df_pivot['brine_delta'] = df_pivot['brine_in_evaporator'] - df_pivot['brine_out_condenser']
 
-            # Simplified COP calculation
-            if 'radiator_delta' in df_pivot.columns and 'brine_delta' in df_pivot.columns:
+            # COP calculation - prefer power-based when available
+            has_power = 'power_consumption' in df_pivot.columns
+            has_temps = 'radiator_delta' in df_pivot.columns and 'brine_delta' in df_pivot.columns
+
+            if has_temps:
+                # Base mask: compressor running and valid temperature deltas
                 mask = (
                     (df_pivot.get('compressor_status', 0) > 0) &
                     (df_pivot['brine_delta'] > 0.5) &
                     (df_pivot['radiator_delta'] > 0.5)
                 )
 
-                df_pivot.loc[mask, 'estimated_cop'] = 2.0 + (
-                    df_pivot.loc[mask, 'radiator_delta'] / df_pivot.loc[mask, 'brine_delta']
-                )
+                if has_power:
+                    # Power-based COP calculation
+                    # Heat output estimated from brine delta (heat extracted + compressor work)
+                    # Assuming ~0.5 L/s brine flow, glycol mix ~3.8 kJ/(kg·K)
+                    # Q_brine ≈ brine_delta * 1.9 kW per °C delta
+                    # COP = (Q_brine + P_compressor) / P_compressor
+                    power_mask = mask & (df_pivot['power_consumption'] > 100)
+
+                    # Estimate heat from ground (kW) - calibration factor for typical flow rates
+                    q_brine_kw = df_pivot.loc[power_mask, 'brine_delta'] * 1.9
+                    power_kw = df_pivot.loc[power_mask, 'power_consumption'] / 1000.0
+
+                    # COP = (Q_extracted + W_compressor) / W_compressor = 1 + Q_extracted/W
+                    df_pivot.loc[power_mask, 'estimated_cop'] = 1.0 + (q_brine_kw / power_kw)
+                else:
+                    # Fallback: temperature-based estimation (original formula)
+                    df_pivot.loc[mask, 'estimated_cop'] = 2.0 + (
+                        df_pivot.loc[mask, 'radiator_delta'] / df_pivot.loc[mask, 'brine_delta']
+                    )
 
                 # Clamp to reasonable values (1.5 - 6.0)
                 df_pivot['estimated_cop'] = df_pivot['estimated_cop'].clip(1.5, 6.0)

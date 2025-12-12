@@ -228,17 +228,17 @@ THERMIA_REGISTERS = {
         "description": "6kW electrical heater total runtime"
     },
 
-    # Power and Energy (if available via H66)
+    # Power and Energy (Common H60/H66 registers)
     "CFAA": {
         "name": "power_consumption",
         "unit": "W",
         "type": "power",
-        "description": "Current power consumption (H66 calculated)"
+        "description": "Real-time power consumption in Watts"
     },
     "5FAB": {
-        "name": "energy_accumulated",
+        "name": "accumulated_energy",
         "unit": "kWh",
         "type": "energy",
-        "description": "Accumulated energy consumption (H66 calculated)"
+        "description": "Total accumulated energy consumption"
     }
 }

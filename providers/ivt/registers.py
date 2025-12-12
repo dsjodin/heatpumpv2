@@ -254,6 +254,20 @@ IVT_REGISTERS = {
         "description": "Electrical additional heater for hot water production"
     },
 
+    # Power & Energy (Common H60/H66 registers)
+    "CFAA": {
+        "name": "power_consumption",
+        "unit": "W",
+        "type": "power",
+        "description": "Real-time power consumption in Watts"
+    },
+    "5FAB": {
+        "name": "accumulated_energy",
+        "unit": "kWh",
+        "type": "energy",
+        "description": "Total accumulated energy consumption"
+    },
+
     # Custom Registers
     "025A": {
         "name": "heat_carrier_in_max",

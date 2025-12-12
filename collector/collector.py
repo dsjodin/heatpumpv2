@@ -173,13 +173,13 @@ class HeatPumpAPICollector:
         reg_name = register_info.get('name', '')
 
         # Values that should NOT be divided (already in correct units)
-        no_division_types = ['status', 'alarm', 'runtime']
+        no_division_types = ['status', 'alarm', 'runtime', 'power', 'energy']
         no_division_names = [
             'compressor_status', 'brine_pump_status', 'radiator_pump_status',
             'pump_cold_circuit', 'pump_heat_circuit', 'pump_radiator',
             'switch_valve_status', 'switch_valve_1', 'alarm_status', 'alarm_code',
             'add_heat_step_1', 'add_heat_step_2',
-            'power_consumption',  # Already in Watts
+            'power_consumption', 'accumulated_energy',  # Already in W/kWh
             'compressor_runtime_heating', 'compressor_runtime_hotwater',
             'aux_runtime_heating', 'aux_runtime_hotwater'
         ]
