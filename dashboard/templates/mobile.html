@@ -517,10 +517,11 @@
                 const radRet = current.radiator_return.current !== null ? current.radiator_return.current.toFixed(1) : '--';
                 document.getElementById('temp-radiator').innerHTML = `${radFwd}/${radRet}<span class="unit">°C</span>`;
 
-                // Min/max for radiator
+                // Min/avg/max for radiator
                 const minmaxEl = document.getElementById('temp-radiator-minmax');
                 if (current.radiator_forward.min !== null && current.radiator_forward.max !== null) {
-                    minmaxEl.textContent = `Fram: ${current.radiator_forward.min.toFixed(0)}°-${current.radiator_forward.max.toFixed(0)}°`;
+                    const avgText = current.radiator_forward.avg !== null ? ` Snitt: ${current.radiator_forward.avg.toFixed(0)}°` : '';
+                    minmaxEl.textContent = `Fram: ${current.radiator_forward.min.toFixed(0)}°-${current.radiator_forward.max.toFixed(0)}°${avgText}`;
                 }
             }
 
@@ -589,7 +590,8 @@
             }
 
             if (minmaxEl && tempData.min !== null && tempData.max !== null) {
-                minmaxEl.textContent = `Min: ${tempData.min.toFixed(1)}° | Max: ${tempData.max.toFixed(1)}°`;
+                const avgText = tempData.avg !== null ? ` | Snitt: ${tempData.avg.toFixed(1)}°` : '';
+                minmaxEl.textContent = `Min: ${tempData.min.toFixed(1)}° | Max: ${tempData.max.toFixed(1)}°${avgText}`;
             }
         }
 

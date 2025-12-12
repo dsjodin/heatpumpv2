@@ -1215,7 +1215,7 @@ def get_status_data(time_range='24h'):
             pass
 
         def get_value_with_minmax(metric_name):
-            """Helper to get current value with min/max"""
+            """Helper to get current value with min/max/avg"""
             current = current_metrics.get(metric_name)
             # current_metrics returns {'value': ..., 'unit': ..., 'time': ...}
             if isinstance(current, dict):
@@ -1226,11 +1226,13 @@ def get_status_data(time_range='24h'):
             mm = min_max.get(metric_name, {})
             min_val = round(mm.get('min'), 1) if mm.get('min') is not None else None
             max_val = round(mm.get('max'), 1) if mm.get('max') is not None else None
+            avg_val = round(mm.get('avg'), 1) if mm.get('avg') is not None else None
 
             return {
                 'current': current_val,
                 'min': min_val,
-                'max': max_val
+                'max': max_val,
+                'avg': avg_val
             }
 
         status = {

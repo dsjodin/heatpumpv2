@@ -203,7 +203,7 @@ class HeatPumpDataQuery:
             return {}
     
     def get_min_max_values(self, time_range: str = '24h') -> Dict[str, Dict[str, float]]:
-        """Get MIN and MAX values for all metrics over the specified time range"""
+        """Get MIN, MAX and MEAN values for all metrics over the specified time range"""
         try:
             query_min = f'''
                 from(bucket: "{self.bucket}")
@@ -212,7 +212,7 @@ class HeatPumpDataQuery:
                     |> group(columns: ["name"])
                     |> min()
             '''
-            
+
             query_max = f'''
                 from(bucket: "{self.bucket}")
                     |> range(start: -{time_range})
@@ -220,31 +220,49 @@ class HeatPumpDataQuery:
                     |> group(columns: ["name"])
                     |> max()
             '''
-            
+
+            query_mean = f'''
+                from(bucket: "{self.bucket}")
+                    |> range(start: -{time_range})
+                    |> filter(fn: (r) => r._measurement == "heatpump")
+                    |> group(columns: ["name"])
+                    |> mean()
+            '''
+
             result_min = self.query_api.query_data_frame(query_min)
             result_max = self.query_api.query_data_frame(query_max)
-            
+            result_mean = self.query_api.query_data_frame(query_mean)
+
             if isinstance(result_min, list):
                 result_min = pd.concat(result_min, ignore_index=True)
             if isinstance(result_max, list):
                 result_max = pd.concat(result_max, ignore_index=True)
-            
+            if isinstance(result_mean, list):
+                result_mean = pd.concat(result_mean, ignore_index=True)
+
             min_max = {}
-            
+
             if not result_min.empty:
                 for _, row in result_min.iterrows():
                     metric_name = row['name']
                     if metric_name not in min_max:
                         min_max[metric_name] = {}
                     min_max[metric_name]['min'] = row['_value']
-            
+
             if not result_max.empty:
                 for _, row in result_max.iterrows():
                     metric_name = row['name']
                     if metric_name not in min_max:
                         min_max[metric_name] = {}
                     min_max[metric_name]['max'] = row['_value']
-            
+
+            if not result_mean.empty:
+                for _, row in result_mean.iterrows():
+                    metric_name = row['name']
+                    if metric_name not in min_max:
+                        min_max[metric_name] = {}
+                    min_max[metric_name]['avg'] = row['_value']
+
             return min_max
             
         except Exception as e:

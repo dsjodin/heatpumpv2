@@ -474,7 +474,8 @@ function updateSecondaryTemps(data) {
         }
 
         if (tempData.min !== null && tempData.max !== null) {
-            minmaxEl.textContent = `Min: ${tempData.min.toFixed(1)}°C | Max: ${tempData.max.toFixed(1)}°C`;
+            const avgText = tempData.avg !== null ? ` | Snitt: ${tempData.avg.toFixed(1)}°C` : '';
+            minmaxEl.textContent = `Min: ${tempData.min.toFixed(1)}°C | Max: ${tempData.max.toFixed(1)}°C${avgText}`;
         }
     }
 
