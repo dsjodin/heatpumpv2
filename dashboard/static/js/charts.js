@@ -9,6 +9,36 @@ const charts = {};
 // Store dashboard configuration
 let dashboardConfig = null;
 
+// Default colors (fallback if config not loaded)
+const DEFAULT_COLORS = {
+    outdoor_temp: '#64b5f6',
+    indoor_temp: '#4caf50',
+    hot_water_top: '#ff9800',
+    radiator_forward: '#dc143c',
+    radiator_return: '#ffd700',
+    brine_in_evaporator: '#00d4ff',
+    brine_out_condenser: '#1565c0',
+    compressor: '#4caf50',
+    aux_heater: '#ffc107',
+    power: '#9b59b6',
+    delta_brine: '#26c6da',
+    delta_radiator: '#ff5722',
+    cop: '#4caf50',
+    cop_avg: '#ff9800'
+};
+
+/**
+ * Get color from config or fallback to default
+ * @param {string} key - Color key from config_colors.py
+ * @returns {string} Hex color code
+ */
+function getColor(key) {
+    if (dashboardConfig && dashboardConfig.colors && dashboardConfig.colors[key]) {
+        return dashboardConfig.colors[key];
+    }
+    return DEFAULT_COLORS[key] || '#666666';
+}
+
 // ==================== Helper Functions ====================
 
 /**
@@ -102,10 +132,10 @@ function updateAllCharts(data) {
 
 function updateSparklines(temperatureData) {
     const sparklineConfigs = [
-        { id: 'sparkline-brine-in', dataKey: 'brine_in_evaporator', color: '#00d4ff' },
-        { id: 'sparkline-brine-out', dataKey: 'brine_out_condenser', color: '#1565c0' },
-        { id: 'sparkline-radiator-forward', dataKey: 'radiator_forward', color: '#dc143c' },
-        { id: 'sparkline-radiator-return', dataKey: 'radiator_return', color: '#ffd700' }
+        { id: 'sparkline-brine-in', dataKey: 'brine_in_evaporator', colorKey: 'brine_in_evaporator' },
+        { id: 'sparkline-brine-out', dataKey: 'brine_out_condenser', colorKey: 'brine_out_condenser' },
+        { id: 'sparkline-radiator-forward', dataKey: 'radiator_forward', colorKey: 'radiator_forward' },
+        { id: 'sparkline-radiator-return', dataKey: 'radiator_return', colorKey: 'radiator_return' }
     ];
 
     sparklineConfigs.forEach(config => {
@@ -114,6 +144,7 @@ function updateSparklines(temperatureData) {
 
         const data = temperatureData[config.dataKey];
         const timestamps = temperatureData.timestamps;
+        const color = getColor(config.colorKey);
 
         // Create chart data from current time range selection
         const chartData = data.map((value, index) => [timestamps[index], value]);
@@ -139,7 +170,7 @@ function updateSparklines(temperatureData) {
                 smooth: true,
                 symbol: 'none',
                 lineStyle: {
-                    color: config.color,
+                    color: color,
                     width: 1.5
                 },
                 areaStyle: {
@@ -150,8 +181,8 @@ function updateSparklines(temperatureData) {
                         x2: 0,
                         y2: 1,
                         colorStops: [
-                            { offset: 0, color: config.color + '40' },
-                            { offset: 1, color: config.color + '05' }
+                            { offset: 0, color: color + '40' },
+                            { offset: 1, color: color + '05' }
                         ]
                     }
                 }
@@ -169,6 +200,9 @@ function updateCopChart(data) {
         console.warn('No COP data available');
         return;
     }
+
+    const copColor = getColor('cop');
+    const copAvgColor = getColor('cop_avg');
 
     const option = {
         grid: {
@@ -203,7 +237,7 @@ function updateCopChart(data) {
             showSymbol: true,
             symbolSize: 6,
             lineStyle: {
-                color: '#2e7d32',
+                color: copColor,
                 width: 2.5
             },
             areaStyle: {
@@ -211,8 +245,8 @@ function updateCopChart(data) {
                     type: 'linear',
                     x: 0, y: 0, x2: 0, y2: 1,
                     colorStops: [
-                        { offset: 0, color: 'rgba(46, 125, 50, 0.4)' },
-                        { offset: 1, color: 'rgba(46, 125, 50, 0.05)' }
+                        { offset: 0, color: copColor + '66' },
+                        { offset: 1, color: copColor + '0d' }
                     ]
                 }
             },
@@ -221,14 +255,14 @@ function updateCopChart(data) {
                 symbol: 'none',
                 lineStyle: {
                     type: 'dashed',
-                    color: '#f57c00',
+                    color: copAvgColor,
                     width: 2
                 },
                 label: {
                     position: 'end',
                     formatter: `Medel: ${safeFixed(data.avg, 2)}`,
                     fontSize: 11,
-                    color: '#f57c00'
+                    color: copAvgColor
                 },
                 data: [{
                     yAxis: data.avg !== null ? data.avg : 0
@@ -263,13 +297,13 @@ function updateTemperatureChart(data) {
     }
 
     const metrics = [
-        { key: 'hot_water_top', name: 'Varmvatten', color: '#ff9800' },
-        { key: 'radiator_forward', name: 'Radiator Fram ↑', color: '#dc143c' },
-        { key: 'radiator_return', name: 'Radiator Retur ↓', color: '#ffd700' },
-        { key: 'indoor_temp', name: 'Inne', color: '#4caf50' },
-        { key: 'outdoor_temp', name: 'Ute', color: '#64b5f6' },
-        { key: 'brine_in_evaporator', name: 'KB In →', color: '#00d4ff' },
-        { key: 'brine_out_condenser', name: 'KB Ut ←', color: '#1565c0' }
+        { key: 'hot_water_top', name: 'Varmvatten', colorKey: 'hot_water_top' },
+        { key: 'radiator_forward', name: 'Radiator Fram ↑', colorKey: 'radiator_forward' },
+        { key: 'radiator_return', name: 'Radiator Retur ↓', colorKey: 'radiator_return' },
+        { key: 'indoor_temp', name: 'Inne', colorKey: 'indoor_temp' },
+        { key: 'outdoor_temp', name: 'Ute', colorKey: 'outdoor_temp' },
+        { key: 'brine_in_evaporator', name: 'KB In →', colorKey: 'brine_in_evaporator' },
+        { key: 'brine_out_condenser', name: 'KB Ut ←', colorKey: 'brine_out_condenser' }
     ];
 
     const series = [];
@@ -277,14 +311,15 @@ function updateTemperatureChart(data) {
 
     metrics.forEach(metric => {
         if (data[metric.key] && data[metric.key].length > 0) {
+            const color = getColor(metric.colorKey);
             legendData.push(metric.name);
             series.push({
                 type: 'line',
                 name: metric.name,
                 data: data[metric.key].map((v, i) => [data.timestamps[i], v]),
                 smooth: true,
-                lineStyle: { color: metric.color, width: 2.5 },
-                itemStyle: { color: metric.color },
+                lineStyle: { color: color, width: 2.5 },
+                itemStyle: { color: color },
                 showSymbol: false
             });
         }
@@ -349,12 +384,12 @@ function updateRuntimeChart(data) {
                 {
                     value: data.compressor_percent,
                     name: 'Kompressor',
-                    itemStyle: { color: '#4caf50' }
+                    itemStyle: { color: getColor('compressor') }
                 },
                 {
                     value: data.aux_heater_percent,
                     name: 'Tillsats',
-                    itemStyle: { color: '#ffc107' }
+                    itemStyle: { color: getColor('aux_heater') }
                 },
                 {
                     value: data.inactive_percent,
@@ -482,7 +517,7 @@ function updatePerformanceChart(data) {
                 xAxisIndex: 0,
                 yAxisIndex: 0,
                 data: data.brine_delta || [],
-                lineStyle: { color: '#26c6da', width: 2.5 },
+                lineStyle: { color: getColor('delta_brine'), width: 2.5 },
                 showSymbol: false
             },
             {
@@ -491,7 +526,7 @@ function updatePerformanceChart(data) {
                 xAxisIndex: 0,
                 yAxisIndex: 0,
                 data: data.radiator_delta || [],
-                lineStyle: { color: '#ff5722', width: 2.5 },
+                lineStyle: { color: getColor('delta_radiator'), width: 2.5 },
                 showSymbol: false
             },
             {
@@ -500,8 +535,8 @@ function updatePerformanceChart(data) {
                 xAxisIndex: 1,
                 yAxisIndex: 1,
                 data: data.compressor_status || [],
-                areaStyle: { color: 'rgba(76, 175, 80, 0.3)' },
-                lineStyle: { color: '#4caf50', width: 2.5 },
+                areaStyle: { color: getColor('compressor') + '4d' },
+                lineStyle: { color: getColor('compressor'), width: 2.5 },
                 showSymbol: false,
                 step: 'end'
             }
@@ -559,8 +594,8 @@ function updatePowerChart(data) {
                 xAxisIndex: 0,
                 yAxisIndex: 0,
                 data: data.power_consumption || [],
-                lineStyle: { color: '#9b59b6', width: 2.5 },
-                areaStyle: { color: 'rgba(155, 89, 182, 0.2)' },
+                lineStyle: { color: getColor('power'), width: 2.5 },
+                areaStyle: { color: getColor('power') + '33' },
                 showSymbol: false
             },
             {
@@ -569,7 +604,7 @@ function updatePowerChart(data) {
                 xAxisIndex: 1,
                 yAxisIndex: 1,
                 data: data.compressor_status || [],
-                lineStyle: { color: '#4caf50', width: 2.5 },
+                lineStyle: { color: getColor('compressor'), width: 2.5 },
                 showSymbol: false,
                 step: 'end'
             },
@@ -579,7 +614,7 @@ function updatePowerChart(data) {
                 xAxisIndex: 1,
                 yAxisIndex: 1,
                 data: data.additional_heat_percent || [],
-                lineStyle: { color: '#ffc107', width: 2.5 },
+                lineStyle: { color: getColor('aux_heater'), width: 2.5 },
                 showSymbol: false
             }
         ],
@@ -645,8 +680,8 @@ function updateValveChart(data) {
                 xAxisIndex: 0,
                 yAxisIndex: 0,
                 data: data.valve_status || [],
-                lineStyle: { color: '#ff9800', width: 3 },
-                areaStyle: { color: 'rgba(255, 152, 0, 0.3)' },
+                lineStyle: { color: getColor('hot_water_top'), width: 3 },
+                areaStyle: { color: getColor('hot_water_top') + '4d' },
                 showSymbol: false,
                 step: 'end'
             },
@@ -656,8 +691,8 @@ function updateValveChart(data) {
                 xAxisIndex: 1,
                 yAxisIndex: 1,
                 data: data.compressor_status || [],
-                lineStyle: { color: '#4caf50', width: 2.5 },
-                areaStyle: { color: 'rgba(76, 175, 80, 0.2)' },
+                lineStyle: { color: getColor('compressor'), width: 2.5 },
+                areaStyle: { color: getColor('compressor') + '33' },
                 showSymbol: false,
                 step: 'end'
             },
@@ -667,7 +702,7 @@ function updateValveChart(data) {
                 xAxisIndex: 2,
                 yAxisIndex: 2,
                 data: data.hot_water_temp || [],
-                lineStyle: { color: '#ff9800', width: 2.5 },
+                lineStyle: { color: getColor('hot_water_top'), width: 2.5 },
                 showSymbol: false
             }
         ],
