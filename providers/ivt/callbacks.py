@@ -54,7 +54,7 @@ def register_ivt_callbacks(app, data_query):
             latest = data_query.get_latest_values()
 
             # Hot water top (Tank 1)
-            top = latest.get('warm_water_1_top', {}).get('value')
+            top = latest.get('hot_water_top', {}).get('value')
             top_text = f"{top:.1f} °C" if top is not None and top > -40 else "Ej installerad"
 
             # Hot water mid (Tank 2)

@@ -96,7 +96,7 @@ class IVTProvider(HeatPumpProvider):
     def get_hot_water_registers(self) -> Dict[str, str]:
         """Return hot water sensor registers"""
         return {
-            'warm_water_1_top': '0009',  # Internal tank
+            'hot_water_top': '0009',  # Internal tank
             'warm_water_2_mid': '000A'   # External tank (if installed)
         }
 

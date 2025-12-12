@@ -56,7 +56,7 @@ IVT_REGISTERS = {
         "description": "Temp of indoor sensor [if installed]"
     },
     "0009": {
-        "name": "warm_water_1_top",
+        "name": "hot_water_top",
         "unit": "°C",
         "type": "temperature",
         "description": "Warm water tank temp GT3 (For internal Tank)"
