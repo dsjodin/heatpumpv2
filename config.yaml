@@ -43,6 +43,13 @@ cop:
   #   0.75 L/s → factor 3.14
   flow_factor: 2.7
 
+# Hot Water Cycle Analysis Settings
+hot_water:
+  # Minimum cycle duration in minutes to count as valid cycle
+  # Cycles shorter than this are filtered out (avoids sensor noise/glitches)
+  # Set to 0 to count all cycles regardless of duration
+  min_cycle_minutes: 2
+
 influxdb:
   # These are set via environment variables in docker-compose
   # url: http://influxdb:8086

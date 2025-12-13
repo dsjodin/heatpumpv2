@@ -46,14 +46,15 @@ class HeatPumpDataQuery:
         self.query_api = self.client.query_api()
 
         # Load provider and settings based on config
-        self.provider, self.cop_flow_factor = self._load_provider_and_settings(config_path)
+        self.provider, self.cop_flow_factor, self.hw_min_cycle_minutes = self._load_provider_and_settings(config_path)
         self.alarm_codes = self.provider.get_alarm_codes()
         self.alarm_register_id = self.provider.get_alarm_register_id()
-        logger.info(f"Data query initialized for {self.provider.get_display_name()}, COP flow factor: {self.cop_flow_factor}")
+        logger.info(f"Data query initialized for {self.provider.get_display_name()}, COP flow factor: {self.cop_flow_factor}, HW min cycle: {self.hw_min_cycle_minutes} min")
 
     def _load_provider_and_settings(self, config_path: str):
-        """Load provider and COP settings from config"""
+        """Load provider and settings from config"""
         cop_flow_factor = 2.7  # Default: ~0.65 L/s flow rate
+        hw_min_cycle_minutes = 2  # Default: 2 minutes minimum
 
         try:
             if os.path.exists(config_path):
@@ -64,14 +65,18 @@ class HeatPumpDataQuery:
                 # Load COP settings
                 cop_config = config.get('cop', {})
                 cop_flow_factor = cop_config.get('flow_factor', 2.7)
+
+                # Load hot water settings
+                hw_config = config.get('hot_water', {})
+                hw_min_cycle_minutes = hw_config.get('min_cycle_minutes', 2)
             else:
                 brand = os.getenv('HEATPUMP_BRAND', 'thermia')
 
-            return get_provider(brand), cop_flow_factor
+            return get_provider(brand), cop_flow_factor, hw_min_cycle_minutes
         except Exception as e:
             logger.warning(f"Failed to load provider from config: {e}, defaulting to Thermia")
             from providers.thermia.provider import ThermiaProvider
-            return ThermiaProvider(), cop_flow_factor
+            return ThermiaProvider(), cop_flow_factor, hw_min_cycle_minutes
     
     def _get_aggregation_window(self, time_range: str) -> str:
         """
@@ -628,8 +633,8 @@ class HeatPumpDataQuery:
             cycle_durations = []
             cycle_energies = []
 
-            # MINIMUM DURATION FILTER - adjusted for coarser aggregation
-            MIN_CYCLE_DURATION_MINUTES = 10  # With 30m aggregation, use higher threshold
+            # MINIMUM DURATION FILTER - configurable in config.yaml
+            min_cycle_minutes = self.hw_min_cycle_minutes
 
             filtered_count = 0
 
@@ -643,7 +648,7 @@ class HeatPumpDataQuery:
                     duration_minutes = duration_seconds / 60
 
                     # FILTER: Skippa cykler kortare än minimum
-                    if duration_minutes < MIN_CYCLE_DURATION_MINUTES:
+                    if duration_minutes < min_cycle_minutes:
                         filtered_count += 1
                         continue
 
@@ -669,7 +674,7 @@ class HeatPumpDataQuery:
             # Antal giltiga cykler (efter filtrering)
             num_valid_cycles = len(cycle_durations)
 
-            logger.info(f"  Total: {num_valid_cycles} valid cycles, {filtered_count} filtered (<{MIN_CYCLE_DURATION_MINUTES} min)")
+            logger.info(f"  Total: {num_valid_cycles} valid cycles, {filtered_count} filtered (<{min_cycle_minutes} min)")
 
             if num_valid_cycles == 0:
                 return {
@@ -758,25 +763,25 @@ class HeatPumpDataQuery:
             # Calculate average cycle duration AND energy
             cycle_durations = []
             cycle_energies = []
-            
-            # MINIMUM DURATION FILTER - filtrera bort korta "blips" som inte är riktiga cykler
-            MIN_CYCLE_DURATION_MINUTES = 5  # Varmvattencykler är typiskt 20-60 min, men acceptera från 5 min
-            
+
+            # MINIMUM DURATION FILTER - configurable in config.yaml
+            min_cycle_minutes = self.hw_min_cycle_minutes
+
             filtered_count = 0
-            
+
             for start_time in cycles_start['_time']:
                 after_start = valve_df[valve_df['_time'] > start_time]
                 end_times = after_start[after_start['_value'] == 0]
-                
+
                 if not end_times.empty:
                     end_time = end_times.iloc[0]['_time']
                     duration_seconds = (end_time - start_time).total_seconds()
                     duration_minutes = duration_seconds / 60
-                    
+
                     # FILTER: Skippa cykler kortare än minimum
-                    if duration_minutes < MIN_CYCLE_DURATION_MINUTES:
+                    if duration_minutes < min_cycle_minutes:
                         filtered_count += 1
-                        logger.debug(f"  ❌ FILTRERAD kort cykel kl {start_time.strftime('%H:%M:%S')}: {duration_minutes:.1f} min (< {MIN_CYCLE_DURATION_MINUTES} min)")
+                        logger.debug(f"  ❌ FILTRERAD kort cykel kl {start_time.strftime('%H:%M:%S')}: {duration_minutes:.1f} min (< {min_cycle_minutes} min)")
                         continue
                     
                     cycle_durations.append(duration_minutes)
@@ -805,10 +810,10 @@ class HeatPumpDataQuery:
             # Antal giltiga cykler (efter filtrering)
             num_valid_cycles = len(cycle_durations)
             
-            logger.info(f"  Totalt: {num_valid_cycles} giltiga cykler, {filtered_count} filtrerade (<{MIN_CYCLE_DURATION_MINUTES} min)")
-            
+            logger.info(f"  Totalt: {num_valid_cycles} giltiga cykler, {filtered_count} filtrerade (<{min_cycle_minutes} min)")
+
             if num_valid_cycles == 0:
-                logger.warning(f"⚠️  Inga giltiga varmvattencykler hittades - alla {filtered_count} cykler var < {MIN_CYCLE_DURATION_MINUTES} min!")
+                logger.warning(f"⚠️  Inga giltiga varmvattencykler hittades - alla {filtered_count} cykler var < {min_cycle_minutes} min!")
                 logger.warning("   → Kontrollera växelventilsgrafen för att se vad som händer")
                 return {
                     'total_cycles': 0,
@@ -825,7 +830,7 @@ class HeatPumpDataQuery:
             cycles_per_day = num_valid_cycles / total_days if total_days > 0 else 0
             
             logger.info(f"Hot water analysis for {time_range}:")
-            logger.info(f"  Total cycles: {num_valid_cycles} (filtered, min {MIN_CYCLE_DURATION_MINUTES} min)")
+            logger.info(f"  Total cycles: {num_valid_cycles} (filtered, min {min_cycle_minutes} min)")
             logger.info(f"  Avg duration: {avg_duration:.1f} min")
             logger.info(f"  Avg energy: {avg_energy_kwh:.2f} kWh")
             logger.info(f"  Cycles/day: {cycles_per_day:.1f}")
