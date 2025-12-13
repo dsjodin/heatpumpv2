@@ -323,7 +323,7 @@ def fetch_all_data_batch(time_range):
         'performance': lambda: get_performance_data_from_pivot(viz_df_pivot),  # Uses pivoted viz data (aligned)
         'power': lambda: get_power_data_from_df(df),  # Uses batch data (OK for simple power chart)
         'valve': lambda: get_valve_data_from_df(df),  # Uses batch data (OK for valve status)
-        'status': lambda: get_status_data(time_range),    # Still separate (complex)
+        'status': lambda: get_status_data_cached(time_range, cached_cop_df),  # Uses cached COP (avoids 3s duplicate calc)
         'events': lambda: get_event_log(20),              # Still separate
         'kpi': lambda: get_kpi_data_cached(time_range, cached_runtime_stats, cached_hot_water_stats),
     }
@@ -1213,6 +1213,81 @@ def get_status_data(time_range='24h'):
         return status
     except Exception as e:
         logger.error(f"Error getting status data: {e}")
+        return {
+            'alarm': {'is_active': False, 'code': None, 'description': None, 'time': None},
+            'current': {},
+            'timestamp': datetime.now().isoformat()
+        }
+
+
+def get_status_data_cached(time_range='24h', cached_cop_df=None):
+    """Get current system status using cached COP data (avoids 3s duplicate calculation)"""
+    try:
+        # Get alarm status
+        alarm = data_query.get_alarm_status()
+
+        # Get current metrics for status display
+        current_metrics = data_query.get_latest_values()
+
+        # Get min/max values for the time range
+        min_max = data_query.get_min_max_values(time_range)
+
+        # Use cached COP data instead of recalculating
+        current_cop = None
+        if cached_cop_df is not None and not cached_cop_df.empty and 'estimated_cop' in cached_cop_df.columns:
+            cop_values = cached_cop_df['estimated_cop'].dropna()
+            if len(cop_values) > 0:
+                current_cop = round(cop_values.mean(), 2)
+
+        def get_value_with_minmax(metric_name):
+            """Helper to get current value with min/max/avg"""
+            current = current_metrics.get(metric_name)
+            if isinstance(current, dict):
+                current_val = round(current.get('value'), 1) if current.get('value') is not None else None
+            else:
+                current_val = round(current, 1) if current is not None else None
+
+            mm = min_max.get(metric_name, {})
+            min_val = round(mm.get('min'), 1) if mm.get('min') is not None else None
+            max_val = round(mm.get('max'), 1) if mm.get('max') is not None else None
+            avg_val = round(mm.get('avg'), 1) if mm.get('avg') is not None else None
+
+            return {
+                'current': current_val,
+                'min': min_val,
+                'max': max_val,
+                'avg': avg_val
+            }
+
+        status = {
+            'alarm': {
+                'is_active': alarm.get('is_alarm', False),
+                'code': alarm.get('alarm_code'),
+                'description': alarm.get('alarm_description'),
+                'time': alarm['alarm_time'].isoformat() if alarm.get('alarm_time') else None
+            },
+            'current': {
+                'outdoor_temp': get_value_with_minmax('outdoor_temp'),
+                'indoor_temp': get_value_with_minmax('indoor_temp'),
+                'hot_water': get_value_with_minmax('hot_water_top'),
+                'brine_in': get_value_with_minmax('brine_in_evaporator'),
+                'brine_out': get_value_with_minmax('brine_out_condenser'),
+                'radiator_forward': get_value_with_minmax('radiator_forward'),
+                'radiator_return': get_value_with_minmax('radiator_return'),
+                'power': round(current_metrics.get('power_consumption', {}).get('value', 0), 0) if current_metrics.get('power_consumption', {}).get('value') is not None else None,
+                'compressor_running': bool(current_metrics.get('compressor_status', {}).get('value', 0)),
+                'brine_pump_running': bool(current_metrics.get('brine_pump_status', {}).get('value', 0)),
+                'radiator_pump_running': bool(current_metrics.get('radiator_pump_status', {}).get('value', 0)),
+                'switch_valve_status': int(current_metrics.get('switch_valve_status', {}).get('value', 0)) if current_metrics.get('switch_valve_status', {}).get('value') is not None else 0,
+                'aux_heater': current_metrics.get('additional_heat_percent', {}).get('value', 0) > 0 if current_metrics.get('additional_heat_percent', {}).get('value') is not None else False,
+                'current_cop': current_cop
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+
+        return status
+    except Exception as e:
+        logger.error(f"Error getting cached status data: {e}")
         return {
             'alarm': {'is_active': False, 'code': None, 'description': None, 'time': None},
             'current': {},
