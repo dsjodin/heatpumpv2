@@ -218,52 +218,14 @@ def fetch_all_data_parallel(time_range):
     This reduces load time from ~20s (sequential) to ~2-3s (parallel)
     by running all InfluxDB queries simultaneously.
 
-    OPTIMIZATION: For 30d queries, uses batch fetching to reduce from 8s to 2s.
+    OPTIMIZATION: Uses batch fetching for all time ranges to reduce round-trips.
     """
     import time
     start_time = time.time()
 
-    # For longer time periods (7d+), use optimized batch fetch
-    if time_range in ['7d', '30d', '90d']:
-        logger.info(f"🚀 Using optimized batch fetch for {time_range}")
-        return fetch_all_data_batch(time_range)
-
-    # Spawn all queries in parallel using eventlet green threads
-    pool = eventlet.GreenPool(size=10)
-
-    # Define all data fetching tasks
-    tasks = {
-        'cop': lambda: get_cop_data(time_range),
-        'temperature': lambda: get_temperature_data(time_range),
-        'runtime': lambda: get_runtime_data(time_range),
-        'sankey': lambda: get_sankey_data(time_range),
-        'performance': lambda: get_performance_data(time_range),
-        'power': lambda: get_power_data(time_range),
-        'valve': lambda: get_valve_data(time_range),
-        'status': lambda: get_status_data(time_range),
-        'events': lambda: get_event_log(20),
-        'kpi': lambda: get_kpi_data(time_range),
-    }
-
-    # Execute all tasks in parallel
-    results = {}
-    for key, task in tasks.items():
-        results[key] = pool.spawn(task)
-
-    # Wait for all tasks to complete and collect results
-    data = {key: green_thread.wait() for key, green_thread in results.items()}
-
-    # Add config (no DB query needed)
-    data['config'] = {
-        'brand': provider.get_brand_name(),
-        'display_name': provider.get_display_name(),
-        'colors': THERMIA_COLORS
-    }
-
-    elapsed = time.time() - start_time
-    logger.info(f"⚡ Parallel data fetch completed in {elapsed:.2f}s (range: {time_range})")
-
-    return data
+    # Use optimized batch fetch for ALL time ranges (much faster)
+    logger.info(f"🚀 Using optimized batch fetch for {time_range}")
+    return fetch_all_data_batch(time_range)
 
 
 def fetch_all_data_batch(time_range):
