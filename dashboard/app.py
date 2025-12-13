@@ -89,27 +89,40 @@ def clean_nan_values(obj):
     """
     import pandas as pd
     import numpy as np
+    from datetime import datetime as dt
 
-    if isinstance(obj, dict):
-        return {key: clean_nan_values(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [clean_nan_values(item) for item in obj]
-    elif isinstance(obj, (pd.Timestamp, pd.DatetimeTZDtype)):
-        return obj.isoformat() if pd.notna(obj) else None
-    elif isinstance(obj, (np.integer,)):
-        return int(obj)
-    elif isinstance(obj, (np.floating,)):
-        if np.isnan(obj) or np.isinf(obj):
+    try:
+        if isinstance(obj, dict):
+            return {key: clean_nan_values(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [clean_nan_values(item) for item in obj]
+        elif isinstance(obj, pd.Timestamp):
+            return obj.isoformat() if pd.notna(obj) else None
+        elif isinstance(obj, dt):
+            return obj.isoformat()
+        elif isinstance(obj, (np.integer,)):
+            return int(obj)
+        elif isinstance(obj, (np.floating,)):
+            if np.isnan(obj) or np.isinf(obj):
+                return None
+            return float(obj)
+        elif isinstance(obj, float):
+            if math.isnan(obj) or math.isinf(obj):
+                return None
+            return obj
+        elif obj is pd.NaT:  # Explicit check for NaT
             return None
-        return float(obj)
-    elif isinstance(obj, float):
-        if math.isnan(obj) or math.isinf(obj):
-            return None
-        return obj
-    elif pd.isna(obj):  # Catches pd.NaT and other pandas NA types
-        return None
-    else:
-        return obj
+        else:
+            # Try pd.isna() but catch errors for incompatible types
+            try:
+                if pd.isna(obj):
+                    return None
+            except (ValueError, TypeError):
+                pass
+            return obj
+    except Exception as e:
+        logger.warning(f"clean_nan_values error for {type(obj)}: {e}")
+        return str(obj) if obj is not None else None
 
 
 @app.route('/test')
