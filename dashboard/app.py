@@ -416,8 +416,15 @@ def fetch_all_data_batch(time_range):
 # Helper functions to extract data from pre-pivoted dataframe
 
 def calculate_cop_from_pivot(df_pivot):
-    """Calculate COP from pre-pivoted dataframe (guaranteed aligned timestamps)"""
+    """Calculate COP from pre-pivoted dataframe (guaranteed aligned timestamps)
+
+    Uses power-based formula when power_consumption is available:
+    COP = (radiator_delta × flow_factor) / power_kW
+    """
     try:
+        # Get flow_factor from data_query (configured in config.yaml)
+        flow_factor = data_query.cop_flow_factor
+
         # Calculate temperature deltas
         if 'radiator_forward' in df_pivot.columns and 'radiator_return' in df_pivot.columns:
             df_pivot['radiator_delta'] = df_pivot['radiator_forward'] - df_pivot['radiator_return']
@@ -425,17 +432,40 @@ def calculate_cop_from_pivot(df_pivot):
         if 'brine_in_evaporator' in df_pivot.columns and 'brine_out_condenser' in df_pivot.columns:
             df_pivot['brine_delta'] = df_pivot['brine_in_evaporator'] - df_pivot['brine_out_condenser']
 
-        # Simplified COP calculation
-        if 'radiator_delta' in df_pivot.columns and 'brine_delta' in df_pivot.columns:
+        # Check what data we have
+        has_power = 'power_consumption' in df_pivot.columns
+        has_temps = 'radiator_delta' in df_pivot.columns and 'brine_delta' in df_pivot.columns
+        has_compressor = 'compressor_status' in df_pivot.columns
+
+        if has_temps:
+            # Base mask: compressor running and valid temperature deltas
+            # Use fillna(0) to handle NaN values in compressor_status
+            if has_compressor:
+                compressor_on = df_pivot['compressor_status'].fillna(0) > 0
+            else:
+                compressor_on = True  # Assume always on if no data
+
             mask = (
-                (df_pivot.get('compressor_status', 0) > 0) &
-                (df_pivot['brine_delta'] > 0.5) &
-                (df_pivot['radiator_delta'] > 0.5)
+                compressor_on &
+                (df_pivot['brine_delta'].fillna(0) > 0.5) &
+                (df_pivot['radiator_delta'].fillna(0) > 0.5)
             )
 
-            df_pivot.loc[mask, 'estimated_cop'] = 2.0 + (
-                df_pivot.loc[mask, 'radiator_delta'] / df_pivot.loc[mask, 'brine_delta']
-            )
+            if has_power:
+                # Power-based COP calculation (more accurate)
+                # COP = Q_radiator / P_electrical
+                # Q_radiator = radiator_delta × flow_factor (kW)
+                power_mask = mask & (df_pivot['power_consumption'].fillna(0) > 100)
+
+                q_radiator_kw = df_pivot.loc[power_mask, 'radiator_delta'] * flow_factor
+                power_kw = df_pivot.loc[power_mask, 'power_consumption'] / 1000.0
+
+                df_pivot.loc[power_mask, 'estimated_cop'] = q_radiator_kw / power_kw
+            else:
+                # Fallback: temperature-based estimation
+                df_pivot.loc[mask, 'estimated_cop'] = 2.0 + (
+                    df_pivot.loc[mask, 'radiator_delta'] / df_pivot.loc[mask, 'brine_delta']
+                )
 
             # Clamp to reasonable values (1.5 - 6.0)
             df_pivot['estimated_cop'] = df_pivot['estimated_cop'].clip(1.5, 6.0)
