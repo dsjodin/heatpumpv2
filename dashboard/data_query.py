@@ -333,19 +333,18 @@ class HeatPumpDataQuery:
                 )
 
                 if has_power:
-                    # Power-based COP calculation
-                    # Heat output estimated from brine delta (heat extracted + compressor work)
-                    # Assuming ~0.5 L/s brine flow, glycol mix ~3.8 kJ/(kg·K)
-                    # Q_brine ≈ brine_delta * 1.9 kW per °C delta
-                    # COP = (Q_brine + P_compressor) / P_compressor
+                    # Power-based COP calculation using heat OUTPUT (radiator side)
+                    # COP = Q_radiator / P_electrical
+                    # Assuming ~0.65 L/s radiator flow, water specific heat 4.18 kJ/(kg·K)
+                    # Q_radiator ≈ radiator_delta * 2.7 kW per °C delta
                     power_mask = mask & (df_pivot['power_consumption'] > 100)
 
-                    # Estimate heat from ground (kW) - calibration factor for typical flow rates
-                    q_brine_kw = df_pivot.loc[power_mask, 'brine_delta'] * 1.9
+                    # Estimate heat output (kW) from radiator temperature delta
+                    q_radiator_kw = df_pivot.loc[power_mask, 'radiator_delta'] * 2.7
                     power_kw = df_pivot.loc[power_mask, 'power_consumption'] / 1000.0
 
-                    # COP = (Q_extracted + W_compressor) / W_compressor = 1 + Q_extracted/W
-                    df_pivot.loc[power_mask, 'estimated_cop'] = 1.0 + (q_brine_kw / power_kw)
+                    # COP = Heat Output / Electrical Input
+                    df_pivot.loc[power_mask, 'estimated_cop'] = q_radiator_kw / power_kw
                 else:
                     # Fallback: temperature-based estimation (original formula)
                     df_pivot.loc[mask, 'estimated_cop'] = 2.0 + (
