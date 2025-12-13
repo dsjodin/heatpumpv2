@@ -100,6 +100,8 @@ def clean_nan_values(obj):
             return obj.isoformat() if pd.notna(obj) else None
         elif isinstance(obj, dt):
             return obj.isoformat()
+        elif isinstance(obj, (np.bool_,)):  # numpy boolean
+            return bool(obj)
         elif isinstance(obj, (np.integer,)):
             return int(obj)
         elif isinstance(obj, (np.floating,)):
