@@ -317,6 +317,175 @@ class HeatPumpDataQuery:
             logger.error(f"Error calculating min/max from dataframe: {e}")
             return {}
 
+    def get_latest_values_from_df(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Get latest values for all metrics from pre-fetched DataFrame
+
+        OPTIMIZED: Avoids separate InfluxDB query by using batch data
+        Takes the most recent row for each metric
+        """
+        try:
+            if df.empty:
+                return {}
+
+            latest = {}
+
+            # Get the last row for each metric (data is already sorted by time in query)
+            for metric_name in df['name'].unique():
+                metric_df = df[df['name'] == metric_name].sort_values('_time')
+                if not metric_df.empty:
+                    last_row = metric_df.iloc[-1]
+                    latest[metric_name] = {
+                        'value': last_row['_value'],
+                        'unit': last_row.get('unit', ''),
+                        'time': last_row['_time']
+                    }
+
+            return latest
+
+        except Exception as e:
+            logger.error(f"Error getting latest values from dataframe: {e}")
+            return {}
+
+    def get_alarm_status_from_df(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Get current alarm status from pre-fetched DataFrame
+
+        OPTIMIZED: Avoids separate InfluxDB query by using batch data
+        """
+        try:
+            # Get latest alarm values from batch data
+            alarm_status = 0
+            alarm_code = 0
+
+            if 'name' in df.columns:
+                alarm_status_df = df[df['name'] == 'alarm_status']
+                if not alarm_status_df.empty:
+                    alarm_status = alarm_status_df.sort_values('_time').iloc[-1]['_value']
+
+                alarm_code_df = df[df['name'] == 'alarm_code']
+                if not alarm_code_df.empty:
+                    alarm_code = int(alarm_code_df.sort_values('_time').iloc[-1]['_value'])
+
+            is_alarm = alarm_status > 0 or alarm_code > 0
+
+            # Use brand-specific alarm codes
+            alarm_description = self.alarm_codes.get(alarm_code, f"Okänd larmkod: {alarm_code}")
+
+            # Get alarm time if active (from the last alarm_code > 0)
+            alarm_time = None
+            if is_alarm and 'name' in df.columns:
+                alarm_code_df = df[df['name'] == 'alarm_code']
+                alarm_active = alarm_code_df[alarm_code_df['_value'] > 0]
+                if not alarm_active.empty:
+                    alarm_time = alarm_active.sort_values('_time').iloc[-1]['_time']
+
+            return {
+                'is_alarm': is_alarm,
+                'alarm_code': alarm_code,
+                'alarm_description': alarm_description if is_alarm else 'Inget larm',
+                'alarm_time': alarm_time,
+                'alarm_status_raw': alarm_status
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting alarm status from dataframe: {e}")
+            return {
+                'is_alarm': False,
+                'alarm_code': 0,
+                'alarm_description': 'Inget larm',
+                'alarm_time': None,
+                'alarm_status_raw': 0
+            }
+
+    def get_event_log_from_df(self, df: pd.DataFrame, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Get recent events (state changes) from pre-fetched DataFrame
+
+        OPTIMIZED: Avoids 6 separate InfluxDB queries by using batch data
+        """
+        try:
+            if df.empty:
+                return []
+
+            events = []
+
+            # Metrics to track for events
+            event_metrics = {
+                'compressor_status': ('Kompressor', '🔄', '⏸️'),
+                'brine_pump_status': ('Köldbärarpump', '💧', '💧'),
+                'radiator_pump_status': ('Radiatorpump', '📡', '📡'),
+                'switch_valve_status': ('Varmvattencykel', '🚿', '🚿'),
+                'additional_heat_percent': ('Tillsattsvärme', '🔥', '🔥'),
+                'alarm_code': ('Larm', '⚠️', '✅')
+            }
+
+            for metric_name, (display_name, icon_on, icon_off) in event_metrics.items():
+                metric_df = df[df['name'] == metric_name].copy()
+
+                if metric_df.empty:
+                    continue
+
+                metric_df = metric_df.sort_values('_time')
+                metric_df['prev_value'] = metric_df['_value'].shift(1)
+
+                for _, row in metric_df.iterrows():
+                    if pd.isna(row['prev_value']):
+                        continue
+
+                    current = row['_value']
+                    previous = row['prev_value']
+                    timestamp = row['_time']
+
+                    # Detect state changes
+                    if metric_name == 'compressor_status':
+                        if current > 0 and previous == 0:
+                            events.append({'time': timestamp, 'event': 'Kompressor PÅ', 'type': 'info', 'icon': icon_on})
+                        elif current == 0 and previous > 0:
+                            events.append({'time': timestamp, 'event': 'Kompressor AV', 'type': 'info', 'icon': icon_off})
+
+                    elif metric_name == 'brine_pump_status':
+                        if current > 0 and previous == 0:
+                            events.append({'time': timestamp, 'event': 'Köldbärarpump PÅ', 'type': 'info', 'icon': icon_on})
+                        elif current == 0 and previous > 0:
+                            events.append({'time': timestamp, 'event': 'Köldbärarpump AV', 'type': 'info', 'icon': icon_off})
+
+                    elif metric_name == 'radiator_pump_status':
+                        if current > 0 and previous == 0:
+                            events.append({'time': timestamp, 'event': 'Radiatorpump PÅ', 'type': 'info', 'icon': icon_on})
+                        elif current == 0 and previous > 0:
+                            events.append({'time': timestamp, 'event': 'Radiatorpump AV', 'type': 'info', 'icon': icon_off})
+
+                    elif metric_name == 'switch_valve_status':
+                        if current == 1 and previous == 0:
+                            events.append({'time': timestamp, 'event': 'Varmvattencykel START', 'type': 'info', 'icon': icon_on})
+                        elif current == 0 and previous == 1:
+                            events.append({'time': timestamp, 'event': 'Varmvattencykel STOPP', 'type': 'info', 'icon': icon_off})
+
+                    elif metric_name == 'additional_heat_percent':
+                        if current > 0 and previous == 0:
+                            events.append({'time': timestamp, 'event': f'Tillsattsvärme PÅ ({int(current)}%)', 'type': 'warning', 'icon': icon_on})
+                        elif current == 0 and previous > 0:
+                            events.append({'time': timestamp, 'event': 'Tillsattsvärme AV', 'type': 'info', 'icon': icon_off})
+                        elif current > 0 and previous > 0 and abs(current - previous) > 10:
+                            events.append({'time': timestamp, 'event': f'Tillsattsvärme ändrad till {int(current)}%', 'type': 'warning', 'icon': icon_on})
+
+                    elif metric_name == 'alarm_code':
+                        if current > 0 and previous == 0:
+                            alarm_desc = self.alarm_codes.get(int(current), f"Kod {int(current)}")
+                            events.append({'time': timestamp, 'event': f'LARM - {alarm_desc}', 'type': 'danger', 'icon': icon_on})
+                        elif current == 0 and previous > 0:
+                            events.append({'time': timestamp, 'event': 'Larm återställt', 'type': 'success', 'icon': icon_off})
+
+            # Sort by time (newest first) and limit
+            events = sorted(events, key=lambda x: x['time'], reverse=True)[:limit]
+
+            return events
+
+        except Exception as e:
+            logger.error(f"Error getting event log from dataframe: {e}")
+            return []
+
     def calculate_cop_from_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Calculate COP (Coefficient of Performance) from pre-fetched dataframe

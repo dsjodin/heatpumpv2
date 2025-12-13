@@ -238,12 +238,13 @@ def fetch_all_data_batch(time_range):
     import time
     start_time = time.time()
 
-    # List ALL metrics we need
+    # List ALL metrics we need (including alarm/status for events)
     all_metrics = [
         'outdoor_temp', 'indoor_temp', 'radiator_forward', 'radiator_return',
         'hot_water_top', 'brine_in_evaporator', 'brine_out_condenser',
         'compressor_status', 'power_consumption', 'additional_heat_percent',
-        'switch_valve_status', 'brine_pump_status', 'radiator_pump_status'
+        'switch_valve_status', 'brine_pump_status', 'radiator_pump_status',
+        'alarm_status', 'alarm_code'  # Added for alarm/event detection
     ]
 
     # ONE query to get everything
@@ -320,6 +321,27 @@ def fetch_all_data_batch(time_range):
     minmax_cache_elapsed = time.time() - minmax_cache_start
     logger.info(f"    ⏱️  Min/max calculation took {minmax_cache_elapsed:.2f}s")
 
+    # OPTIMIZATION: Get latest values from batch data (eliminates 1 DB query)
+    logger.info(f"  📊 Pre-calculating latest values from batch data (used by status task)...")
+    latest_cache_start = time.time()
+    cached_latest_values = data_query.get_latest_values_from_df(df)
+    latest_cache_elapsed = time.time() - latest_cache_start
+    logger.info(f"    ⏱️  Latest values calculation took {latest_cache_elapsed:.2f}s")
+
+    # OPTIMIZATION: Get alarm status from batch data (eliminates 1-2 DB queries)
+    logger.info(f"  📊 Pre-calculating alarm status from batch data (used by status task)...")
+    alarm_cache_start = time.time()
+    cached_alarm_status = data_query.get_alarm_status_from_df(df)
+    alarm_cache_elapsed = time.time() - alarm_cache_start
+    logger.info(f"    ⏱️  Alarm status calculation took {alarm_cache_elapsed:.2f}s")
+
+    # OPTIMIZATION: Get event log from batch data (eliminates 6 separate DB queries ~2s)
+    logger.info(f"  📊 Pre-calculating event log from batch data (used by events task)...")
+    events_cache_start = time.time()
+    cached_events = data_query.get_event_log_from_df(df, limit=20)
+    events_cache_elapsed = time.time() - events_cache_start
+    logger.info(f"    ⏱️  Event log calculation took {events_cache_elapsed:.2f}s")
+
     pool = eventlet.GreenPool(size=10)
 
     tasks = {
@@ -330,8 +352,8 @@ def fetch_all_data_batch(time_range):
         'performance': lambda: get_performance_data_from_pivot(viz_df_pivot),  # Uses pivoted viz data (aligned)
         'power': lambda: get_power_data_from_df(df),  # Uses batch data (OK for simple power chart)
         'valve': lambda: get_valve_data_from_df(df),  # Uses batch data (OK for valve status)
-        'status': lambda: get_status_data_cached(time_range, cached_cop_df, cached_min_max),  # Uses cached COP + min/max
-        'events': lambda: get_event_log(20),              # Still separate
+        'status': lambda: get_status_data_fully_cached(cached_cop_df, cached_min_max, cached_latest_values, cached_alarm_status),
+        'events': lambda: get_event_log_cached(cached_events),  # Uses pre-calculated events
         'kpi': lambda: get_kpi_data_cached(time_range, cached_runtime_stats, cached_hot_water_stats),
     }
 
@@ -1321,6 +1343,100 @@ def get_event_log(limit=20):
     except Exception as e:
         logger.error(f"Error getting event log: {e}")
         return []
+
+
+def get_event_log_cached(cached_events):
+    """Get recent event log entries from pre-calculated cache (avoids 6 DB queries)"""
+    try:
+        event_list = []
+        for event in cached_events:
+            event_list.append({
+                'time': event.get('time', '').isoformat() if hasattr(event.get('time', ''), 'isoformat') else str(event.get('time', '')),
+                'type': event.get('type', 'unknown'),
+                'description': event.get('event', 'No description'),
+                'value': event.get('value'),
+                'icon': event.get('icon', '')
+            })
+
+        return event_list
+    except Exception as e:
+        logger.error(f"Error getting cached event log: {e}")
+        return []
+
+
+def get_status_data_fully_cached(cached_cop_df, cached_min_max, cached_latest_values, cached_alarm_status):
+    """Get current system status using ALL cached data (no DB queries needed)"""
+    try:
+        # Use cached alarm status
+        alarm = cached_alarm_status
+
+        # Use cached latest values
+        current_metrics = cached_latest_values
+
+        # Use cached min/max values
+        min_max = cached_min_max
+
+        # Use cached COP data
+        current_cop = None
+        if cached_cop_df is not None and not cached_cop_df.empty and 'estimated_cop' in cached_cop_df.columns:
+            cop_values = cached_cop_df['estimated_cop'].dropna()
+            if len(cop_values) > 0:
+                current_cop = round(cop_values.mean(), 2)
+
+        def get_value_with_minmax(metric_name):
+            """Helper to get current value with min/max/avg"""
+            current = current_metrics.get(metric_name)
+            if isinstance(current, dict):
+                current_val = round(current.get('value'), 1) if current.get('value') is not None else None
+            else:
+                current_val = round(current, 1) if current is not None else None
+
+            mm = min_max.get(metric_name, {})
+            min_val = round(mm.get('min'), 1) if mm.get('min') is not None else None
+            max_val = round(mm.get('max'), 1) if mm.get('max') is not None else None
+            avg_val = round(mm.get('avg'), 1) if mm.get('avg') is not None else None
+
+            return {
+                'current': current_val,
+                'min': min_val,
+                'max': max_val,
+                'avg': avg_val
+            }
+
+        status = {
+            'alarm': {
+                'is_active': alarm.get('is_alarm', False),
+                'code': alarm.get('alarm_code'),
+                'description': alarm.get('alarm_description'),
+                'time': alarm['alarm_time'].isoformat() if alarm.get('alarm_time') else None
+            },
+            'current': {
+                'outdoor_temp': get_value_with_minmax('outdoor_temp'),
+                'indoor_temp': get_value_with_minmax('indoor_temp'),
+                'hot_water': get_value_with_minmax('hot_water_top'),
+                'brine_in': get_value_with_minmax('brine_in_evaporator'),
+                'brine_out': get_value_with_minmax('brine_out_condenser'),
+                'radiator_forward': get_value_with_minmax('radiator_forward'),
+                'radiator_return': get_value_with_minmax('radiator_return'),
+                'power': round(current_metrics.get('power_consumption', {}).get('value', 0), 0) if current_metrics.get('power_consumption', {}).get('value') is not None else None,
+                'compressor_running': bool(current_metrics.get('compressor_status', {}).get('value', 0)),
+                'brine_pump_running': bool(current_metrics.get('brine_pump_status', {}).get('value', 0)),
+                'radiator_pump_running': bool(current_metrics.get('radiator_pump_status', {}).get('value', 0)),
+                'switch_valve_status': int(current_metrics.get('switch_valve_status', {}).get('value', 0)) if current_metrics.get('switch_valve_status', {}).get('value') is not None else 0,
+                'aux_heater': current_metrics.get('additional_heat_percent', {}).get('value', 0) > 0 if current_metrics.get('additional_heat_percent', {}).get('value') is not None else False,
+                'current_cop': current_cop
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+
+        return status
+    except Exception as e:
+        logger.error(f"Error getting fully cached status data: {e}")
+        return {
+            'alarm': {'is_active': False, 'code': None, 'description': None, 'time': None},
+            'current': {},
+            'timestamp': datetime.now().isoformat()
+        }
 
 
 def get_kpi_data(time_range='24h', price_per_kwh=2.0):
