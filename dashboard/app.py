@@ -313,6 +313,13 @@ def fetch_all_data_batch(time_range):
     hw_cache_elapsed = time.time() - hw_cache_start
     logger.info(f"    ⏱️  Hot water analysis took {hw_cache_elapsed:.2f}s")
 
+    # OPTIMIZATION: Calculate min/max/avg from batch data (eliminates 3 separate DB queries ~2-3s)
+    logger.info(f"  📊 Pre-calculating min/max/avg from batch data (used by status task)...")
+    minmax_cache_start = time.time()
+    cached_min_max = data_query.calculate_min_max_from_df(df)
+    minmax_cache_elapsed = time.time() - minmax_cache_start
+    logger.info(f"    ⏱️  Min/max calculation took {minmax_cache_elapsed:.2f}s")
+
     pool = eventlet.GreenPool(size=10)
 
     tasks = {
@@ -323,7 +330,7 @@ def fetch_all_data_batch(time_range):
         'performance': lambda: get_performance_data_from_pivot(viz_df_pivot),  # Uses pivoted viz data (aligned)
         'power': lambda: get_power_data_from_df(df),  # Uses batch data (OK for simple power chart)
         'valve': lambda: get_valve_data_from_df(df),  # Uses batch data (OK for valve status)
-        'status': lambda: get_status_data_cached(time_range, cached_cop_df),  # Uses cached COP (avoids 3s duplicate calc)
+        'status': lambda: get_status_data_cached(time_range, cached_cop_df, cached_min_max),  # Uses cached COP + min/max
         'events': lambda: get_event_log(20),              # Still separate
         'kpi': lambda: get_kpi_data_cached(time_range, cached_runtime_stats, cached_hot_water_stats),
     }
@@ -1220,8 +1227,8 @@ def get_status_data(time_range='24h'):
         }
 
 
-def get_status_data_cached(time_range='24h', cached_cop_df=None):
-    """Get current system status using cached COP data (avoids 3s duplicate calculation)"""
+def get_status_data_cached(time_range='24h', cached_cop_df=None, cached_min_max=None):
+    """Get current system status using cached COP and min/max data (avoids 3s+ duplicate calculations)"""
     try:
         # Get alarm status
         alarm = data_query.get_alarm_status()
@@ -1229,8 +1236,8 @@ def get_status_data_cached(time_range='24h', cached_cop_df=None):
         # Get current metrics for status display
         current_metrics = data_query.get_latest_values()
 
-        # Get min/max values for the time range
-        min_max = data_query.get_min_max_values(time_range)
+        # Use cached min/max values if provided (avoids 3 separate DB queries)
+        min_max = cached_min_max if cached_min_max is not None else data_query.get_min_max_values(time_range)
 
         # Use cached COP data instead of recalculating
         current_cop = None

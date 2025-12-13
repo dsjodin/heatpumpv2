@@ -281,11 +281,42 @@ class HeatPumpDataQuery:
                     min_max[metric_name]['avg'] = row['_value']
 
             return min_max
-            
+
         except Exception as e:
             logger.error(f"Error getting min/max values: {e}")
             return {}
-    
+
+    def calculate_min_max_from_df(self, df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
+        """
+        Calculate MIN, MAX and MEAN values from pre-fetched DataFrame
+
+        OPTIMIZED: Avoids 3 separate InfluxDB queries by using batch data
+        This saves ~2-3s of load time when min/max values are needed
+        """
+        try:
+            if df.empty:
+                return {}
+
+            min_max = {}
+
+            # Group by metric name and calculate statistics
+            for metric_name in df['name'].unique():
+                metric_df = df[df['name'] == metric_name]
+                values = metric_df['_value'].dropna()
+
+                if len(values) > 0:
+                    min_max[metric_name] = {
+                        'min': float(values.min()),
+                        'max': float(values.max()),
+                        'avg': float(values.mean())
+                    }
+
+            return min_max
+
+        except Exception as e:
+            logger.error(f"Error calculating min/max from dataframe: {e}")
+            return {}
+
     def calculate_cop_from_df(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Calculate COP (Coefficient of Performance) from pre-fetched dataframe
