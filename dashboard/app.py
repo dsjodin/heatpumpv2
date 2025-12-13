@@ -84,17 +84,30 @@ def index():
 
 def clean_nan_values(obj):
     """
-    Recursively replace NaN and Infinity with None for JSON serialization.
-    JSON doesn't support NaN/Infinity, so we must convert them to null.
+    Recursively replace NaN, Infinity, and non-serializable types for JSON serialization.
+    JSON doesn't support NaN/Infinity, pandas Timestamps, or numpy types.
     """
+    import pandas as pd
+    import numpy as np
+
     if isinstance(obj, dict):
         return {key: clean_nan_values(value) for key, value in obj.items()}
     elif isinstance(obj, list):
         return [clean_nan_values(item) for item in obj]
+    elif isinstance(obj, (pd.Timestamp, pd.DatetimeTZDtype)):
+        return obj.isoformat() if pd.notna(obj) else None
+    elif isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        if np.isnan(obj) or np.isinf(obj):
+            return None
+        return float(obj)
     elif isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return None
         return obj
+    elif pd.isna(obj):  # Catches pd.NaT and other pandas NA types
+        return None
     else:
         return obj
 
