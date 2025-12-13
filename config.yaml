@@ -23,10 +23,25 @@ mqtt:
 collection:
   # How often to collect data (in seconds)
   interval_seconds: 300  # 5 minutes
-  
+
   # Retry settings for MQTT connection
   retry_attempts: 5
   retry_delay: 10
+
+# COP Calculation Settings
+cop:
+  # Flow factor for COP calculation (kW per °C temperature delta)
+  # Formula: Q_radiator = radiator_delta × flow_factor
+  #
+  # Calculate your factor: flow_rate (L/s) × 4.18 (water specific heat)
+  # Examples:
+  #   0.50 L/s → factor 2.09
+  #   0.55 L/s → factor 2.30
+  #   0.60 L/s → factor 2.51
+  #   0.65 L/s → factor 2.72 (default)
+  #   0.70 L/s → factor 2.93
+  #   0.75 L/s → factor 3.14
+  flow_factor: 2.7
 
 influxdb:
   # These are set via environment variables in docker-compose

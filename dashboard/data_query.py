@@ -45,27 +45,33 @@ class HeatPumpDataQuery:
         self.client = InfluxDBClient(url=self.url, token=self.token, org=self.org)
         self.query_api = self.client.query_api()
 
-        # Load provider based on config
-        self.provider = self._load_provider(config_path)
+        # Load provider and settings based on config
+        self.provider, self.cop_flow_factor = self._load_provider_and_settings(config_path)
         self.alarm_codes = self.provider.get_alarm_codes()
         self.alarm_register_id = self.provider.get_alarm_register_id()
-        logger.info(f"Data query initialized for {self.provider.get_display_name()}")
+        logger.info(f"Data query initialized for {self.provider.get_display_name()}, COP flow factor: {self.cop_flow_factor}")
 
-    def _load_provider(self, config_path: str):
-        """Load provider from config"""
+    def _load_provider_and_settings(self, config_path: str):
+        """Load provider and COP settings from config"""
+        cop_flow_factor = 2.7  # Default: ~0.65 L/s flow rate
+
         try:
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     config = yaml.safe_load(f)
                 brand = config.get('brand', 'thermia')
+
+                # Load COP settings
+                cop_config = config.get('cop', {})
+                cop_flow_factor = cop_config.get('flow_factor', 2.7)
             else:
                 brand = os.getenv('HEATPUMP_BRAND', 'thermia')
 
-            return get_provider(brand)
+            return get_provider(brand), cop_flow_factor
         except Exception as e:
             logger.warning(f"Failed to load provider from config: {e}, defaulting to Thermia")
             from providers.thermia.provider import ThermiaProvider
-            return ThermiaProvider()
+            return ThermiaProvider(), cop_flow_factor
     
     def _get_aggregation_window(self, time_range: str) -> str:
         """
@@ -335,12 +341,12 @@ class HeatPumpDataQuery:
                 if has_power:
                     # Power-based COP calculation using heat OUTPUT (radiator side)
                     # COP = Q_radiator / P_electrical
-                    # Assuming ~0.65 L/s radiator flow, water specific heat 4.18 kJ/(kg·K)
-                    # Q_radiator ≈ radiator_delta * 2.7 kW per °C delta
+                    # Q_radiator = radiator_delta × flow_factor (configurable in config.yaml)
+                    # Default flow_factor 2.7 = 0.65 L/s × 4.18 kJ/(kg·K)
                     power_mask = mask & (df_pivot['power_consumption'] > 100)
 
                     # Estimate heat output (kW) from radiator temperature delta
-                    q_radiator_kw = df_pivot.loc[power_mask, 'radiator_delta'] * 2.7
+                    q_radiator_kw = df_pivot.loc[power_mask, 'radiator_delta'] * self.cop_flow_factor
                     power_kw = df_pivot.loc[power_mask, 'power_consumption'] / 1000.0
 
                     # COP = Heat Output / Electrical Input
